@@ -27,7 +27,7 @@
   --danger-bg:#f8e9e4;
   --danger-line:#e3c0b8;
 
-  --grain:rgba(120,96,60,.055);
+  --grain:rgba(120,96,60,.07);
   --outside:#e2d6c0;
   --shadow:0 8px 24px rgba(96,74,44,.09);
   --shadow-lg:0 18px 50px rgba(96,74,44,.16);
@@ -62,7 +62,7 @@ html[data-theme="night"]{
   --good-c:#a9c29f;--good-bg:#303d34;--good-line:#455843;
   --hard-c:#d9b47c;--hard-bg:#3e3527;--hard-line:#564733;
   --danger:#e09b8f;--danger-bg:#432e2c;--danger-line:#5d3f3a;
-  --grain:rgba(255,240,210,.035);
+  --grain:rgba(255,240,210,.05);
   --outside:#12171d;
   --shadow:0 10px 30px rgba(0,0,0,.35);
   --shadow-lg:0 24px 60px rgba(0,0,0,.5);
@@ -112,13 +112,19 @@ input,textarea{-webkit-appearance:none;appearance:none}
 body.no-texture .app{
   background-image:radial-gradient(120% 55% at 50% 0%,rgba(255,255,255,.32),transparent 62%);
 }
-.app::before{
-  content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
-  background-image:var(--bg-image,none);
-  background-size:cover;background-position:center;
-  opacity:var(--bg-alpha,0);
-  transition:opacity .4s ease;
+.bg-photo{
+  position:fixed;top:0;bottom:0;left:50%;transform:translateX(-50%);
+  width:100%;max-width:460px;z-index:0;pointer-events:none;
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  opacity:0;transition:opacity .35s ease;
 }
+.bg-photo.on{opacity:1}
+.bg-photo::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:radial-gradient(circle at 1px 1px,var(--grain) 1px,transparent 0);
+  background-size:4px 4px;
+}
+body.no-texture .bg-photo::after{display:none}
 .app .view{position:relative;z-index:1}
 html[data-theme="night"] .app{
   background-image:
@@ -181,6 +187,37 @@ html[data-theme="night"] body.no-texture .app{
 .icon-btn:active{background:var(--paper-3);color:var(--ink)}
 
 /* ---------------- home ---------------- */
+.poster{
+  position:relative;display:flex;flex-direction:column;justify-content:space-between;
+  min-height:min(64vh,600px);margin-top:4px;padding:20px 20px 18px;
+  background:var(--card-bg,var(--paper-2));border:1px solid var(--line);
+  border-radius:calc(var(--card-radius,15px) + 8px);box-shadow:var(--shadow);
+  overflow:hidden;
+}
+.poster-top{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.06em;color:var(--muted)}
+.poster-main{margin:24px 0}
+.poster-label{font-size:9px;letter-spacing:.24em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+.poster-word{
+  font-family:var(--serif);font-weight:600;font-size:clamp(42px,13vw,70px);
+  line-height:1.04;letter-spacing:.01em;overflow-wrap:anywhere;
+}
+.poster-phon{margin-top:8px;font-size:12px;color:var(--muted)}
+.poster-meaning{margin-top:10px;max-width:26ch;font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+.poster-bottom{display:flex;align-items:center;gap:12px;padding-bottom:10px;padding-right:64px}
+.poster-add{
+  display:inline-flex;align-items:center;gap:8px;height:46px;padding:0 20px;
+  border-radius:23px;background:var(--ink);color:var(--paper-2);
+  font-size:13.5px;letter-spacing:.06em;
+}
+.poster-add span{font-size:18px;line-height:1}
+.poster-link{font-size:11px;color:var(--muted);text-decoration:underline;text-underline-offset:3px}
+.watermark{
+  position:absolute;right:16px;bottom:14px;pointer-events:none;
+  font-family:var(--serif);font-style:italic;font-size:11px;letter-spacing:.2em;
+  color:var(--muted);opacity:.6;transform:rotate(-4deg);
+}
+
+/* ---------------- home (legacy) ---------------- */
 .home-head{padding-top:24px}
 .add-hero{
   display:flex;align-items:center;gap:16px;width:100%;
@@ -263,7 +300,7 @@ html[data-theme="night"] body.no-texture .app{
 
 .wcard{
   position:relative;width:var(--card-width,100%);margin-bottom:9px;overflow:hidden;
-  background:var(--paper-2);border:1px solid var(--line);
+  background:var(--card-bg,var(--paper-2));border:1px solid var(--line);
   border-radius:var(--card-radius,15px);box-shadow:0 2px 6px rgba(90,70,40,.04);
   transition:box-shadow .25s,border-color .25s,transform .16s ease;
 }
@@ -613,6 +650,32 @@ body.no-speak .w-top .icon-btn{display:none}
 .sw.sky{background:linear-gradient(135deg,#eff4f7,#b3c5cf)}
 .theme span{font-size:9.5px;color:var(--muted);letter-spacing:.02em}
 
+.card-preview{margin:2px 0 14px}
+.preview-card{pointer-events:none;margin:0}
+.preview-card .w-top{padding:12px 13px}
+.color-wrap{display:flex;align-items:center;gap:8px}
+.color-input{
+  width:38px;height:30px;padding:2px;flex:none;
+  border:1px solid var(--line);border-radius:8px;background:var(--paper-2);
+}
+.accent-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.accent-dot{
+  width:24px;height:24px;flex:none;border-radius:50%;
+  border:2px solid transparent;box-shadow:0 0 0 1px var(--line);
+}
+.accent-dot.on{border-color:var(--paper-2);box-shadow:0 0 0 2px var(--ink)}
+.accent-dot.default{
+  width:auto;height:24px;padding:0 8px;border-radius:12px;background:transparent;
+  box-shadow:none;border:1px dashed var(--line);
+  font-size:9px;color:var(--muted);letter-spacing:.04em;
+}
+.accent-dot.default.on{border-style:solid;border-color:var(--ink);color:var(--ink)}
+.text-input{
+  width:118px;height:34px;padding:0 10px;border:1px solid var(--line);
+  border-radius:9px;background:var(--paper-2);font-size:14px;text-align:right;outline:none;
+}
+.text-input:focus{border-color:var(--accent)}
+
 .bg-preview{
   height:108px;margin-bottom:10px;border-radius:14px;overflow:hidden;
   border:1px solid var(--line);background-color:var(--paper-3);
@@ -777,6 +840,7 @@ body.no-speak .w-top .icon-btn{display:none}
 @supports (background: color-mix(in srgb, white 50%, transparent)) {
   body.glass-on .wcard,
   body.glass-on .card,
+  body.glass-on .poster,
   body.glass-on .stat-strip,
   body.glass-on .week,
   body.glass-on .entry,
@@ -787,7 +851,7 @@ body.no-speak .w-top .icon-btn{display:none}
   body.glass-on .add-hero,
   body.glass-on .seg,
   body.glass-on .tabbar {
-    background-color: color-mix(in srgb, var(--paper-2) calc(var(--card-alpha,100) * 1%), transparent);
+    background-color: color-mix(in srgb, var(--card-bg, var(--paper-2)) calc(var(--card-alpha,100) * 1%), transparent);
     -webkit-backdrop-filter: blur(var(--card-blur,0px));
     backdrop-filter: blur(var(--card-blur,0px));
   }

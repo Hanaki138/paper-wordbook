@@ -27,6 +27,8 @@
   const TRANS_API = 'https://api.mymemory.translated.net/get';
   const THEMES = { paper: '奶油纸', sage: '青瓷', sakura: '樱粉', night: '墨夜', sky: '雾蓝' };
   const THEME_COLOR = { paper: '#f3e9d6', sage: '#e9eee2', sakura: '#f7e8e6', night: '#222a33', sky: '#e7edf0' };
+  const CARD_DEFAULT = { paper: '#fbf5e8', sage: '#f7faf0', sakura: '#fff8f5', night: '#2b3540', sky: '#f7fafb' };
+  const ACCENTS = ['#b25f4a', '#6c855f', '#5b7d90', '#8b6bb3', '#c48a3f', '#c46a86'];
 
   /* =========================================================
      tiny utils
@@ -97,8 +99,9 @@
      ========================================================= */
   const DEFAULT_SETTINGS = {
     theme: 'paper', goal: 10, autoSpeak: true, texture: true, mode: 'card',
-    bgImage: '', bgOpacity: 35, showStats: false, glassOpacity: 100, glassBlur: 0,
-    cardWidth: 100, cardAlign: 'center', cardRadius: 15, cardText: 'left', phonetic: 'inline', showSpeak: true
+    bgImage: '', bgDim: 15, showStats: false, glassOpacity: 100, glassBlur: 0,
+    cardWidth: 100, cardAlign: 'center', cardRadius: 15, cardText: 'left', phonetic: 'inline', showSpeak: true, cardColor: '',
+    accent: '', watermark: 'Hanaki'
   };
 
   function blankSrs() {
@@ -170,18 +173,20 @@
     if (!THEMES[st.settings.theme]) st.settings.theme = 'paper';
     st.settings.goal = clamp(Number(st.settings.goal) || 10, GOAL_MIN, GOAL_MAX);
     if (typeof st.settings.bgImage !== 'string') st.settings.bgImage = '';
-    st.settings.bgOpacity = clamp(Number(st.settings.bgOpacity) || 35, 5, 60);
     st.settings.showStats = !!st.settings.showStats;
     st.settings.glassOpacity = clamp(Number(st.settings.glassOpacity) || 100, 30, 100);
     st.settings.glassBlur = clamp(Number(st.settings.glassBlur) || 0, 0, 20);
     const cw = Number(st.settings.cardWidth);
-    st.settings.cardWidth = clamp(isFinite(cw) && cw ? cw : 100, 80, 100);
+    st.settings.cardWidth = clamp(isFinite(cw) && cw ? cw : 100, 60, 100);
     const cr = Number(st.settings.cardRadius);
     st.settings.cardRadius = clamp(isFinite(cr) ? cr : 15, 0, 24);
     if (['left', 'center', 'right'].indexOf(st.settings.cardAlign) < 0) st.settings.cardAlign = 'center';
     if (['left', 'center'].indexOf(st.settings.cardText) < 0) st.settings.cardText = 'left';
     if (['inline', 'below'].indexOf(st.settings.phonetic) < 0) st.settings.phonetic = 'inline';
     st.settings.showSpeak = st.settings.showSpeak !== false;
+    st.settings.bgDim = clamp(Number(st.settings.bgDim) || 0, 0, 80);
+    if (typeof st.settings.watermark !== 'string') st.settings.watermark = 'Hanaki';
+    if (!/^#[0-9a-f]{6}$/i.test(st.settings.accent || '')) st.settings.accent = '';
     st.days = raw.days && typeof raw.days === 'object' ? raw.days : {};
     st.recent = Array.isArray(raw.recent) ? raw.recent.slice(0, 8) : [];
     st.cache = raw.cache && typeof raw.cache === 'object' ? raw.cache : {};
@@ -284,13 +289,22 @@
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', THEME_COLOR[t]);
 
+    const accent = String(state.settings.accent || '');
+    if (/^#[0-9a-f]{6}$/i.test(accent)) {
+      document.documentElement.style.setProperty('--accent', accent);
+      document.documentElement.style.setProperty('--accent-2', hexToRgba(accent, 0.16));
+    } else {
+      document.documentElement.style.removeProperty('--accent');
+      document.documentElement.style.removeProperty('--accent-2');
+    }
+
     const alpha = clamp(Number(state.settings.glassOpacity) || 100, 30, 100);
     const blur = clamp(Number(state.settings.glassBlur) || 0, 0, 20);
     document.documentElement.style.setProperty('--card-alpha', String(alpha));
     document.documentElement.style.setProperty('--card-blur', blur + 'px');
     document.body.classList.toggle('glass-on', alpha < 100 || blur > 0);
 
-    document.documentElement.style.setProperty('--card-width', clamp(Number(state.settings.cardWidth) || 100, 80, 100) + '%');
+    document.documentElement.style.setProperty('--card-width', clamp(Number(state.settings.cardWidth) || 100, 60, 100) + '%');
     document.documentElement.style.setProperty('--card-radius', clamp(Number(state.settings.cardRadius), 0, 24) + 'px');
     document.body.setAttribute('data-card-align', state.settings.cardAlign || 'center');
     const textCenter = state.settings.cardText === 'center';
@@ -299,20 +313,30 @@
     document.body.classList.toggle('phon-below', state.settings.phonetic === 'below');
     document.body.classList.toggle('no-speak', !state.settings.showSpeak);
 
-    const app = $('#app');
-    if (app) {
+    const cardColor = String(state.settings.cardColor || '').trim();
+    document.documentElement.style.setProperty('--card-bg', cardColor || 'var(--paper-2)');
+
+    const photo = $('#bgPhoto');
+    if (photo) {
       const img = state.settings.bgImage;
       if (img) {
-        const bgAlpha = clamp(Number(state.settings.bgOpacity) || 35, 5, 60) / 100;
-        app.style.setProperty('--bg-image', 'url("' + img + '")');
-        app.style.setProperty('--bg-alpha', String(bgAlpha));
-        app.classList.add('has-bg');
+        const dim = clamp(Number(state.settings.bgDim) || 0, 0, 80) / 100;
+        const tint = hexToRgba(THEME_COLOR[t], dim);
+        photo.style.backgroundImage = 'linear-gradient(' + tint + ',' + tint + '), url("' + img + '")';
+        photo.classList.add('on');
       } else {
-        app.style.removeProperty('--bg-image');
-        app.style.removeProperty('--bg-alpha');
-        app.classList.remove('has-bg');
+        photo.style.backgroundImage = '';
+        photo.classList.remove('on');
       }
     }
+  }
+
+  function hexToRgba(hex, alpha) {
+    const h = String(hex || '#000000').replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16) || 0;
+    const g = parseInt(h.slice(2, 4), 16) || 0;
+    const b = parseInt(h.slice(4, 6), 16) || 0;
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
   }
 
   function animateView() {
@@ -349,20 +373,32 @@
      ========================================================= */
   function viewHome() {
     const n = state.words.length;
+    const latest = state.words.slice().sort((a, b) => {
+      const d = String(b.date || '').localeCompare(String(a.date || ''));
+      return d !== 0 ? d : String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    })[0];
+    const wm = String(state.settings.watermark || '').trim();
     return `
-  <section class="page-head home-head">
-    <div class="kicker">${esc(fullDate(TODAY()))}</div>
-    <h1>记一个词</h1>
-    <p class="sub">遇到就记下，剩下的交给以后。</p>
-  </section>
+  <section class="poster">
+    <div class="poster-top">
+      <span>${esc(fullDate(TODAY()))}</span>
+      <span>${n} 个词</span>
+    </div>
 
-  <button class="add-hero" data-act="open-add">
-    <span class="add-plus">＋</span>
-    <span class="add-copy"><b>记录新词</b><small>单词、释义、例句，随手收进来</small></span>
-  </button>
+    <div class="poster-main">
+      <p class="poster-label">${latest ? '最近记录' : 'START HERE'}</p>
+      <h1 class="poster-word">${esc(latest ? latest.word : '记一个词')}</h1>
+      ${latest && latest.phonetic ? `<p class="poster-phon">${esc(latest.phonetic)}</p>` : ''}
+      <p class="poster-meaning">${esc(latest ? latest.meaning : '遇到就记下，剩下的交给以后。')}</p>
+    </div>
 
-  <p class="home-count">词库里有 ${n} 个词</p>
-  <button class="btn ghost wide" data-act="tab" data-tab="library">打开词库</button>`;
+    <div class="poster-bottom">
+      <button class="poster-add" data-act="open-add"><span>＋</span> 记录新词</button>
+      ${n ? `<button class="poster-link" data-act="tab" data-tab="library">词库 ${n}</button>` : ''}
+    </div>
+
+    ${wm ? `<p class="watermark">${esc(wm)}</p>` : ''}
+  </section>`;
   }
 
   function viewLibrary() {
@@ -1421,8 +1457,8 @@
         ${s.bgImage ? '<button class="btn ghost" data-act="clear-bg">清除</button>' : ''}
       </div>
       <div class="set-row">
-        <div><b>背景浓度</b><small>越淡，字越清楚</small></div>
-        <input class="range" id="bgRange" type="range" min="5" max="60" step="1" value="${clamp(Number(s.bgOpacity) || 35, 5, 60)}" ${s.bgImage ? '' : 'disabled'}>
+        <div><b>背景遮罩</b><small>0 最清晰，80 几乎看不见</small></div>
+        <input class="range" id="bgDim" type="range" min="0" max="80" step="1" value="${clamp(Number(s.bgDim) || 0, 0, 80)}" ${s.bgImage ? '' : 'disabled'}>
       </div>
       <p class="fine">图片会压缩后保存在本机，不会上传；换手机记得先导出备份。</p>
     </section>
@@ -1441,10 +1477,37 @@
     </section>
 
     <section class="card">
-      <div class="card-head"><h2>卡片样式</h2><span>CARD</span></div>
+      <div class="card-head"><h2>个性</h2><span>PERSONAL</span></div>
       <div class="set-row">
-        <div><b>卡片宽度</b><small>窄一点能露出背景</small></div>
-        <input class="range" id="cardWidth" type="range" min="80" max="100" step="1" value="${clamp(Number(s.cardWidth) || 100, 80, 100)}">
+        <div><b>签名色</b><small>按钮、标签和高亮</small></div>
+        <div class="accent-row">
+          <button class="accent-dot default ${!s.accent ? 'on' : ''}" data-act="accent" data-val="">默认</button>
+          ${ACCENTS.map((a) => `<button class="accent-dot ${s.accent === a ? 'on' : ''}" style="background:${a}" data-act="accent" data-val="${a}" aria-label="${a}"></button>`).join('')}
+        </div>
+      </div>
+      <div class="set-row">
+        <div><b>水印</b><small>首页右下角的签名</small></div>
+        <input class="text-input" id="watermarkInput" value="${esc(s.watermark || '')}" maxlength="24" placeholder="Hanaki">
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>卡片样式</h2><span>CARD</span></div>
+      <div class="card-preview">
+        <article class="wcard preview-card">
+          <div class="w-top">
+            <div class="w-text">
+              <div class="w-title"><h3>serendipity</h3><span class="phon">/ˌserənˈdɪpəti/</span></div>
+              <p class="w-mean">n. 意外发现美好事物的运气</p>
+              <div class="w-meta"><span class="pill mid">熟悉</span><span class="due">明天复习</span></div>
+            </div>
+            <button class="icon-btn" type="button" tabindex="-1" aria-hidden="true">${ICON.speaker}</button>
+          </div>
+        </article>
+      </div>
+      <div class="set-row">
+        <div><b>卡片宽度</b><small>60% – 100%，窄一点能露背景</small></div>
+        <input class="range" id="cardWidth" type="range" min="60" max="100" step="1" value="${clamp(Number(s.cardWidth) || 100, 60, 100)}">
       </div>
       ${segRow('cardAlign', '左右位置', '窄卡片时靠哪边', [
         { v: 'left', t: '左' }, { v: 'center', t: '中' }, { v: 'right', t: '右' }
@@ -1452,6 +1515,13 @@
       <div class="set-row">
         <div><b>圆角</b><small>0 是直角，24 最圆</small></div>
         <input class="range" id="cardRadius" type="range" min="0" max="24" step="1" value="${clamp(Number(s.cardRadius), 0, 24)}">
+      </div>
+      <div class="set-row">
+        <div><b>卡片底色</b><small>默认跟随主题纸色</small></div>
+        <div class="color-wrap">
+          <input class="color-input" id="cardColor" type="color" value="${s.cardColor || CARD_DEFAULT[s.theme] || '#fbf5e8'}">
+          <button class="btn mini" type="button" data-act="reset-card-color">默认</button>
+        </div>
       </div>
       ${segRow('cardText', '文字对齐', '单词、释义和标签', [
         { v: 'left', t: '左' }, { v: 'center', t: '中' }
@@ -1557,9 +1627,8 @@
       const f = input.files && input.files[0];
       if (!f) return;
       toast('正在处理图片…');
-      compressImage(f, 1400, 0.72).then((data) => {
+      compressImage(f, 1800, 0.82).then((data) => {
         state.settings.bgImage = data;
-        state.settings.bgOpacity = clamp(Number(state.settings.bgOpacity) || 35, 5, 60);
         const ok = save();
         applyTheme();
         render();
@@ -1812,6 +1881,20 @@
         }
         break;
       }
+      case 'reset-card-color':
+        state.settings.cardColor = '';
+        save();
+        applyTheme();
+        render();
+        break;
+      case 'accent': {
+        const val = el.getAttribute('data-val') || '';
+        state.settings.accent = /^#[0-9a-f]{6}$/i.test(val) ? val : '';
+        save();
+        applyTheme();
+        render();
+        break;
+      }
       case 'clear-q':
         ui.q = '';
         render();
@@ -1868,10 +1951,19 @@
       if (list) list.innerHTML = journalListHTML();
       const clear = $('#jClear');
       if (clear) clear.style.display = ui.q ? '' : 'none';
-    } else if (e.target.id === 'bgRange') {
-      state.settings.bgOpacity = Number(e.target.value) || 35;
+    } else if (e.target.id === 'bgDim') {
+      state.settings.bgDim = clamp(Number(e.target.value) || 0, 0, 80);
       applyTheme();
       save();
+    } else if (e.target.id === 'cardColor') {
+      state.settings.cardColor = e.target.value;
+      applyTheme();
+      save();
+    } else if (e.target.id === 'watermarkInput') {
+      state.settings.watermark = e.target.value.slice(0, 24);
+      save();
+      const wm = $('.watermark');
+      if (wm) wm.textContent = state.settings.watermark;
     } else if (e.target.id === 'glassOpacity') {
       state.settings.glassOpacity = Number(e.target.value) || 100;
       applyTheme();
@@ -1881,7 +1973,7 @@
       applyTheme();
       save();
     } else if (e.target.id === 'cardWidth') {
-      state.settings.cardWidth = clamp(Number(e.target.value) || 100, 80, 100);
+      state.settings.cardWidth = clamp(Number(e.target.value) || 100, 60, 100);
       applyTheme();
       save();
     } else if (e.target.id === 'cardRadius') {
