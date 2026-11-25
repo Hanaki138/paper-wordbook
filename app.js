@@ -378,7 +378,10 @@
       return d !== 0 ? d : String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
     })[0];
     const wm = String(state.settings.watermark || '').trim();
+    const rawWord = latest ? latest.word : '记一个词';
+    const wordSize = Math.max(26, Math.min(62, Math.floor(320 / (Math.max(4, rawWord.length) * 0.58))));
     return `
+  <div class="home-wrap">
   <section class="poster">
     <div class="poster-top">
       <span>${esc(fullDate(TODAY()))}</span>
@@ -387,7 +390,7 @@
 
     <div class="poster-main">
       <p class="poster-label">${latest ? '最近记录' : 'START HERE'}</p>
-      <h1 class="poster-word">${esc(latest ? latest.word : '记一个词')}</h1>
+      <h1 class="poster-word" style="font-size:${wordSize}px">${esc(rawWord)}</h1>
       ${latest && latest.phonetic ? `<p class="poster-phon">${esc(latest.phonetic)}</p>` : ''}
       <p class="poster-meaning">${esc(latest ? latest.meaning : '遇到就记下，剩下的交给以后。')}</p>
     </div>
@@ -398,7 +401,8 @@
     </div>
 
     ${wm ? `<p class="watermark">${esc(wm)}</p>` : ''}
-  </section>`;
+  </section>
+  </div>`;
   }
 
   function viewLibrary() {
@@ -1619,6 +1623,8 @@
     });
   }
 
+  let crop = null;
+
   function pickBackground() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -1626,16 +1632,134 @@
     input.onchange = () => {
       const f = input.files && input.files[0];
       if (!f) return;
-      toast('正在处理图片…');
-      compressImage(f, 1800, 0.82).then((data) => {
-        state.settings.bgImage = data;
-        const ok = save();
-        applyTheme();
-        render();
-        toast(ok ? '背景已更新' : '背景已应用，但本机存储空间不足');
-      }).catch(() => toast('这张图片读取失败，换一张试试'));
+      const reader = new FileReader();
+      reader.onload = () => openCropper(String(reader.result));
+      reader.onerror = () => toast('这张图片读取失败，换一张试试');
+      reader.readAsDataURL(f);
     };
     input.click();
+  }
+
+  function openCropper(src) {
+    const root = $('#cropRoot');
+    if (!root) return;
+    const img = new Image();
+    img.onerror = () => toast('这张图片打不开，换一张试试');
+    img.onload = () => {
+      root.innerHTML = `<div class="crop-mask">
+        <section class="crop-panel">
+          <header class="crop-head">
+            <h3>调整背景</h3>
+            <button class="icon-btn" data-act="crop-cancel" aria-label="关闭">${ICON.close}</button>
+          </header>
+          <div class="crop-stage" id="cropStage">
+            <img id="cropImg" src="${esc(src)}" alt="">
+            <div class="crop-frame"></div>
+          </div>
+          <div class="crop-zoom"><span>缩放</span><input id="cropZoom" type="range" min="100" max="300" step="1" value="100"></div>
+          <p class="crop-hint">拖动图片选择范围，框内就是首页看到的画面</p>
+          <div class="crop-actions">
+            <button class="btn ghost" data-act="crop-cancel">取消</button>
+            <button class="btn ink" data-act="crop-ok">使用这张</button>
+          </div>
+        </section>
+      </div>`;
+      document.body.style.overflow = 'hidden';
+
+      const stage = $('#cropStage');
+      const el = $('#cropImg');
+      const rect = stage.getBoundingClientRect();
+      const base = Math.max(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+      crop = {
+        img: img, el: el, stage: stage,
+        stageW: rect.width, stageH: rect.height,
+        base: base, zoom: 1, x: 0, y: 0
+      };
+      applyCrop();
+
+      let drag = null;
+      stage.addEventListener('pointerdown', (e) => {
+        drag = { x: e.clientX, y: e.clientY, ox: crop.x, oy: crop.y };
+        try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+      });
+      stage.addEventListener('pointermove', (e) => {
+        if (!drag || !crop) return;
+        crop.x = drag.ox + (e.clientX - drag.x);
+        crop.y = drag.oy + (e.clientY - drag.y);
+        clampCrop();
+        applyCrop();
+      });
+      const stop = () => { drag = null; };
+      stage.addEventListener('pointerup', stop);
+      stage.addEventListener('pointercancel', stop);
+
+      const zoom = $('#cropZoom');
+      if (zoom) {
+        zoom.addEventListener('input', () => {
+          if (!crop) return;
+          crop.zoom = Number(zoom.value) / 100;
+          clampCrop();
+          applyCrop();
+        });
+      }
+    };
+    img.src = src;
+  }
+
+  function clampCrop() {
+    if (!crop) return;
+    const dw = crop.img.naturalWidth * crop.base * crop.zoom;
+    const dh = crop.img.naturalHeight * crop.base * crop.zoom;
+    const mx = Math.max(0, (dw - crop.stageW) / 2);
+    const my = Math.max(0, (dh - crop.stageH) / 2);
+    crop.x = clamp(crop.x, -mx, mx);
+    crop.y = clamp(crop.y, -my, my);
+  }
+
+  function applyCrop() {
+    if (!crop) return;
+    const c = crop;
+    c.el.style.width = (c.img.naturalWidth * c.base * c.zoom) + 'px';
+    c.el.style.height = (c.img.naturalHeight * c.base * c.zoom) + 'px';
+    c.el.style.left = 'calc(50% + ' + c.x + 'px)';
+    c.el.style.top = 'calc(50% + ' + c.y + 'px)';
+  }
+
+  function cropConfirm() {
+    if (!crop) return;
+    const outW = 1080;
+    const outH = Math.round(outW * crop.stageH / crop.stageW);
+    const canvas = document.createElement('canvas');
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d');
+    const k = outW / crop.stageW;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, outW, outH);
+    ctx.translate(outW / 2 + crop.x * k, outH / 2 + crop.y * k);
+    const s = crop.base * crop.zoom * k;
+    ctx.scale(s, s);
+    ctx.drawImage(crop.img, -crop.img.naturalWidth / 2, -crop.img.naturalHeight / 2);
+    let data = '';
+    try {
+      data = canvas.toDataURL('image/jpeg', 0.85);
+    } catch (e) {
+      toast('图片处理失败，换一张试试');
+      return;
+    }
+    state.settings.bgImage = data;
+    const ok = save();
+    closeCropper();
+    applyTheme();
+    render();
+    toast(ok ? '背景已更新' : '背景已应用，但本机存储空间不足');
+  }
+
+  function closeCropper() {
+    crop = null;
+    document.body.style.overflow = '';
+    const root = $('#cropRoot');
+    if (root) root.innerHTML = '';
   }
 
   function clearBackground() {
@@ -1914,6 +2038,8 @@
       case 'save-word': saveDraft(); break;
       case 'pick-bg': pickBackground(); break;
       case 'clear-bg': clearBackground(); break;
+      case 'crop-cancel': closeCropper(); break;
+      case 'crop-ok': cropConfirm(); break;
       case 'sheet-lookup': sheetLookup(); break;
       case 'recent': lookupWord(el.getAttribute('data-word')); break;
       case 'retry-lookup': if (ui.lookup) lookupWord(ui.lookup.word); break;
