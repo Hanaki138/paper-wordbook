@@ -1,0 +1,11 @@
+{
+  "appId": "com.paperwordbook.app",
+  "appName": "纸间词笺",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
