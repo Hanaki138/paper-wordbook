@@ -95,7 +95,11 @@
   /* =========================================================
      state
      ========================================================= */
-  const DEFAULT_SETTINGS = { theme: 'paper', goal: 10, autoSpeak: true, texture: true, mode: 'card', bgImage: '', bgOpacity: 35 };
+  const DEFAULT_SETTINGS = {
+    theme: 'paper', goal: 10, autoSpeak: true, texture: true, mode: 'card',
+    bgImage: '', bgOpacity: 35, showStats: false, glassOpacity: 100, glassBlur: 0,
+    cardWidth: 100, cardAlign: 'center', cardRadius: 15, cardText: 'left', phonetic: 'inline', showSpeak: true
+  };
 
   function blankSrs() {
     return { stage: 0, due: TODAY(), reps: 0, lapses: 0, last: null };
@@ -167,6 +171,17 @@
     st.settings.goal = clamp(Number(st.settings.goal) || 10, GOAL_MIN, GOAL_MAX);
     if (typeof st.settings.bgImage !== 'string') st.settings.bgImage = '';
     st.settings.bgOpacity = clamp(Number(st.settings.bgOpacity) || 35, 5, 60);
+    st.settings.showStats = !!st.settings.showStats;
+    st.settings.glassOpacity = clamp(Number(st.settings.glassOpacity) || 100, 30, 100);
+    st.settings.glassBlur = clamp(Number(st.settings.glassBlur) || 0, 0, 20);
+    const cw = Number(st.settings.cardWidth);
+    st.settings.cardWidth = clamp(isFinite(cw) && cw ? cw : 100, 80, 100);
+    const cr = Number(st.settings.cardRadius);
+    st.settings.cardRadius = clamp(isFinite(cr) ? cr : 15, 0, 24);
+    if (['left', 'center', 'right'].indexOf(st.settings.cardAlign) < 0) st.settings.cardAlign = 'center';
+    if (['left', 'center'].indexOf(st.settings.cardText) < 0) st.settings.cardText = 'left';
+    if (['inline', 'below'].indexOf(st.settings.phonetic) < 0) st.settings.phonetic = 'inline';
+    st.settings.showSpeak = st.settings.showSpeak !== false;
     st.days = raw.days && typeof raw.days === 'object' ? raw.days : {};
     st.recent = Array.isArray(raw.recent) ? raw.recent.slice(0, 8) : [];
     st.cache = raw.cache && typeof raw.cache === 'object' ? raw.cache : {};
@@ -179,7 +194,8 @@
   let state = loadState();
 
   const ui = {
-    tab: 'journal',
+    tab: 'home',
+    group: 'date',
     filter: 'all',
     q: '',
     open: null,
@@ -268,13 +284,28 @@
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', THEME_COLOR[t]);
 
+    const alpha = clamp(Number(state.settings.glassOpacity) || 100, 30, 100);
+    const blur = clamp(Number(state.settings.glassBlur) || 0, 0, 20);
+    document.documentElement.style.setProperty('--card-alpha', String(alpha));
+    document.documentElement.style.setProperty('--card-blur', blur + 'px');
+    document.body.classList.toggle('glass-on', alpha < 100 || blur > 0);
+
+    document.documentElement.style.setProperty('--card-width', clamp(Number(state.settings.cardWidth) || 100, 80, 100) + '%');
+    document.documentElement.style.setProperty('--card-radius', clamp(Number(state.settings.cardRadius), 0, 24) + 'px');
+    document.body.setAttribute('data-card-align', state.settings.cardAlign || 'center');
+    const textCenter = state.settings.cardText === 'center';
+    document.documentElement.style.setProperty('--card-text-align', textCenter ? 'center' : 'left');
+    document.documentElement.style.setProperty('--card-justify', textCenter ? 'center' : 'flex-start');
+    document.body.classList.toggle('phon-below', state.settings.phonetic === 'below');
+    document.body.classList.toggle('no-speak', !state.settings.showSpeak);
+
     const app = $('#app');
     if (app) {
       const img = state.settings.bgImage;
       if (img) {
-        const alpha = clamp(Number(state.settings.bgOpacity) || 35, 5, 60) / 100;
+        const bgAlpha = clamp(Number(state.settings.bgOpacity) || 35, 5, 60) / 100;
         app.style.setProperty('--bg-image', 'url("' + img + '")');
-        app.style.setProperty('--bg-alpha', String(alpha));
+        app.style.setProperty('--bg-alpha', String(bgAlpha));
         app.classList.add('has-bg');
       } else {
         app.style.removeProperty('--bg-image');
@@ -296,7 +327,8 @@
     applyTheme();
     const v = $('#view');
     if (!v) return;
-    if (ui.tab === 'journal') v.innerHTML = viewJournal();
+    if (ui.tab === 'home') v.innerHTML = viewHome();
+    else if (ui.tab === 'library') v.innerHTML = viewLibrary();
     else if (ui.tab === 'lookup') v.innerHTML = viewLookup();
     else if (ui.tab === 'study') v.innerHTML = viewStudy();
     else v.innerHTML = viewMe();
@@ -313,9 +345,27 @@
   }
 
   /* =========================================================
-     journal
+     home + library
      ========================================================= */
-  function viewJournal() {
+  function viewHome() {
+    const n = state.words.length;
+    return `
+  <section class="page-head home-head">
+    <div class="kicker">${esc(fullDate(TODAY()))}</div>
+    <h1>记一个词</h1>
+    <p class="sub">遇到就记下，剩下的交给以后。</p>
+  </section>
+
+  <button class="add-hero" data-act="open-add">
+    <span class="add-plus">＋</span>
+    <span class="add-copy"><b>记录新词</b><small>单词、释义、例句，随手收进来</small></span>
+  </button>
+
+  <p class="home-count">词库里有 ${n} 个词</p>
+  <button class="btn ghost wide" data-act="tab" data-tab="library">打开词库</button>`;
+  }
+
+  function viewLibrary() {
     const words = state.words;
     const todayCount = words.filter((w) => w.date === TODAY()).length;
     const due = dueWords().length;
@@ -324,17 +374,24 @@
   <section class="page-head">
     <div class="kicker">${monthKicker()}</div>
     <div class="head-row">
-      <h1>词笺</h1>
+      <h1>词库</h1>
       <button class="round-btn" data-act="open-add" aria-label="记录新词">${ICON.plus}</button>
     </div>
-    <p class="sub">一天一页。</p>
+    <p class="sub">${words.length} 个词 · 按日期或分类整理</p>
   </section>
 
-  <div class="stat-strip">
+  ${state.settings.showStats ? `<div class="stat-strip">
     <div class="stat"><b>${todayCount}<em>/${state.settings.goal}</em></b><span>今日新词</span></div>
     <div class="stat"><b>${due}</b><span>待复习</span></div>
     <div class="stat"><b>${learned}</b><span>已学习</span></div>
     <div class="stat"><b>${streak()}</b><span>连续天数</span></div>
+  </div>` : ''}
+
+  <div class="lib-tools">
+    <div class="seg">
+      <button class="${ui.group === 'date' ? 'on' : ''}" data-act="group" data-g="date">按日期</button>
+      <button class="${ui.group === 'tag' ? 'on' : ''}" data-act="group" data-g="tag">按分类</button>
+    </div>
   </div>
 
   <div class="search-row">
@@ -393,6 +450,26 @@
   function journalListHTML() {
     const list = filteredWords();
     if (!list.length) return emptyHTML();
+
+    if (ui.group === 'tag') {
+      list.sort((a, b) => {
+        const ta = a.tag || '未分类';
+        const tb = b.tag || '未分类';
+        return ta.localeCompare(tb) || a.word.localeCompare(b.word);
+      });
+      const order = [];
+      const map = {};
+      list.forEach((w) => {
+        const k = w.tag || '未分类';
+        if (!map[k]) { map[k] = []; order.push(k); }
+        map[k].push(w);
+      });
+      return order.map((k) => `<section class="day-group">
+        <div class="day-head"><b>${esc(k)}</b><span>${map[k].length} 个词</span><i>${map[k].length}</i></div>
+        ${map[k].map(wordCardHTML).join('')}
+      </section>`).join('');
+    }
+
     list.sort((a, b) => {
       const d = String(b.date || '').localeCompare(String(a.date || ''));
       return d !== 0 ? d : String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
@@ -423,7 +500,7 @@
     if (ui.filter !== 'all') {
       return `<div class="empty"><div class="empty-mark">✎</div><h2>这里还是空的</h2><p>换个筛选条件看看。</p></div>`;
     }
-    return `<div class="empty"><div class="empty-mark">✎</div><h2>还没有词笺</h2><p>记下今天遇见的第一个词吧。</p><button class="btn ink" data-act="open-add">记录第一个词</button></div>`;
+    return `<div class="empty"><div class="empty-mark">✎</div><h2>还没有词</h2><p>先去记录今天遇见的第一个词。</p><button class="btn ink" data-act="tab" data-tab="home">去记录</button></div>`;
   }
 
   function wordCardHTML(w) {
@@ -581,6 +658,7 @@
       ${d.example ? `<div class="entry-ex"><p class="ex-en">${esc(d.example)}</p>${d.exampleZh ? `<p class="ex-zh">${esc(d.exampleZh)}</p>` : ''}</div>` : '<div class="entry-ex none"><p>这部词典没有收录例句，可以自己补一句。</p><button class="link-btn" data-act="save-lookup">补一句</button></div>'}
       <button class="btn ink wide" data-act="save-lookup">＋ 收进今日词笺</button>
       ${exists ? '<p class="exists-tip">词笺里已经有这个词了</p>' : ''}
+      ${d.source ? `<p class="entry-src">释义 ${esc(d.source)} · 中文 MyMemory</p>` : ''}
     </article>`;
   }
 
@@ -616,34 +694,57 @@
     }
   }
 
-  async function fetchEntry(word) {
+  async function fetchDatamuse(word) {
+    try {
+      const res = await timeoutFetch(
+        'https://api.datamuse.com/words?sp=' + encodeURIComponent(word) + '&md=dp&max=1',
+        8000
+      );
+      if (!res.ok) return null;
+      const arr = await res.json();
+      if (!Array.isArray(arr) || !arr.length) return null;
+      const hit = arr.find((x) => String(x.word || '').toLowerCase() === word.toLowerCase()) || arr[0];
+      if (!hit || !Array.isArray(hit.defs)) return null;
+      const senses = [];
+      hit.defs.forEach((raw) => {
+        const parts = String(raw).split('\t');
+        const pos = (parts[0] || '').trim();
+        const def = (parts[1] || '').trim();
+        if (!def) return;
+        if (senses.some((s) => s.def.toLowerCase() === def.toLowerCase())) return;
+        if (senses.length < 4) senses.push({ pos: pos, def: def });
+      });
+      return senses.length ? senses : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function fetchDict(word) {
     let res;
     try {
       res = await timeoutFetch(DICT_API + encodeURIComponent(word), 12000);
     } catch (e) {
-      throw new Error('连不上词典服务，请检查网络后重试，或手动记录。');
+      return null;
     }
-    if (res.status === 404) throw new Error('词典里没有这个单词，检查一下拼写？');
-    if (!res.ok) throw new Error('词典服务暂时不可用（' + res.status + '），稍后再试。');
+    if (!res.ok) return null;
     let list;
     try {
       list = await res.json();
     } catch (e) {
-      throw new Error('词典返回的内容读不懂，稍后再试。');
+      return null;
     }
-    if (!Array.isArray(list) || !list.length) throw new Error('没有找到这个词的释义。');
+    if (!Array.isArray(list) || !list.length) return null;
 
     const entry = list.find((x) => String(x.word || '').toLowerCase() === word.toLowerCase()) || list[0];
     const phonetic = entry.phonetic ||
       (entry.phonetics || []).map((p) => p.text).filter(Boolean)[0] || '';
-
-    const meanings = (entry.meanings || []).slice(0, 3);
+    const meanings = (entry.meanings || []).slice(0, 4);
     const senses = [];
     meanings.forEach((m) => {
       const def = (m.definitions || [])[0];
       if (def && def.definition) senses.push({ pos: m.partOfSpeech || '', def: def.definition });
     });
-    if (!senses.length) throw new Error('没有找到这个词的释义。');
 
     let example = '';
     for (let i = 0; i < meanings.length && !example; i++) {
@@ -653,30 +754,51 @@
       }
     }
 
+    return { word: entry.word || word, phonetic: phonetic, senses: senses, example: example };
+  }
+
+  async function fetchEntry(word) {
+    const [dict, dm] = await Promise.all([fetchDict(word), fetchDatamuse(word)]);
+    if (!dict && !dm) {
+      throw new Error('几个词典都没有找到这个词，检查拼写，或点「手动记录」自己填。');
+    }
+
+    const senses = [];
+    if (dm) dm.forEach((s) => senses.push(s));
+    if (dict && dict.senses) {
+      dict.senses.forEach((s) => {
+        if (!senses.some((x) => x.def.toLowerCase() === s.def.toLowerCase())) senses.push(s);
+      });
+    }
+    if (!senses.length) throw new Error('没有找到这个词的释义，可以手动记录。');
+
     return {
-      word: entry.word || word,
-      phonetic: phonetic,
-      senses: senses,
+      word: (dict && dict.word) || word,
+      phonetic: (dict && dict.phonetic) || '',
+      senses: senses.slice(0, 4),
       zh: '',
-      example: example,
-      exampleZh: ''
+      example: (dict && dict.example) || '',
+      exampleZh: '',
+      source: [dict ? 'Wiktionary' : '', dm ? 'Datamuse' : ''].filter(Boolean).join(' + ')
     };
   }
 
   async function enrichEntry(data) {
     if (!data) return data;
+    const first = data.senses[0];
     const jobs = [
-      data.zh ? Promise.resolve(data.zh) : translate(data.senses[0].def),
+      data.zh ? Promise.resolve(data.zh) : translate(data.word),
+      first && !first.zh ? translate(first.def) : Promise.resolve(first ? first.zh || '' : ''),
       data.example && !data.exampleZh ? translate(data.example) : Promise.resolve(data.exampleZh || '')
     ];
     const out = await Promise.all(jobs);
-    if (out[0]) {
-      data.zh = out[0];
-      if (!data.senses[0].zh) data.senses[0].zh = out[0];
-    } else {
-      data.zhFailed = true;
-    }
-    if (out[1]) data.exampleZh = out[1];
+    const wordZh = out[0];
+    const defZh = out[1];
+    if (wordZh) data.zh = wordZh;
+    else if (defZh) data.zh = defZh;
+    if (first && defZh) first.zh = defZh;
+    if (out[2]) data.exampleZh = out[2];
+    if (!data.zh) data.zhFailed = true;
     if (data.zh) {
       state.cache[data.word.toLowerCase()] = { t: Date.now(), data: data };
       trimCache();
@@ -764,7 +886,7 @@
         <div class="empty-mark">✿</div>
         <h2>还没有可以背的词</h2>
         <p>先在词笺里记几个词，再回来和它们见面。</p>
-        <button class="btn ink" data-act="tab" data-tab="journal">去记录</button>
+        <button class="btn ink" data-act="tab" data-tab="home">去记录</button>
       </div>`;
     }
 
@@ -1234,7 +1356,7 @@
     const ok = save();
     closeSheet();
     if (wasLookup) {
-      ui.tab = 'journal';
+      ui.tab = 'library';
       ui.lookupWord = '';
       animateView();
     }
@@ -1306,16 +1428,44 @@
     </section>
 
     <section class="card">
-      <div class="card-head"><h2>偏好</h2><span>PREFERENCE</span></div>
+      <div class="card-head"><h2>卡片质感</h2><span>GLASS</span></div>
       <div class="set-row">
-        <div><b>每日目标</b><small>每天记录的新词数量</small></div>
-        <div class="stepper">
-          <button data-act="goal" data-d="-5" aria-label="减少">−</button>
-          <b>${s.goal}</b>
-          <button data-act="goal" data-d="5" aria-label="增加">＋</button>
-        </div>
+        <div><b>卡片透明度</b><small>让背景透出来一点</small></div>
+        <input class="range" id="glassOpacity" type="range" min="30" max="100" step="1" value="${clamp(Number(s.glassOpacity) || 100, 30, 100)}">
       </div>
+      <div class="set-row">
+        <div><b>磨砂</b><small>毛玻璃模糊</small></div>
+        <input class="range" id="glassBlur" type="range" min="0" max="20" step="1" value="${clamp(Number(s.glassBlur) || 0, 0, 20)}">
+      </div>
+      <p class="fine">100 + 0 就是原来的纸片；调低透明度，背景图会透出来。</p>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>卡片样式</h2><span>CARD</span></div>
+      <div class="set-row">
+        <div><b>卡片宽度</b><small>窄一点能露出背景</small></div>
+        <input class="range" id="cardWidth" type="range" min="80" max="100" step="1" value="${clamp(Number(s.cardWidth) || 100, 80, 100)}">
+      </div>
+      ${segRow('cardAlign', '左右位置', '窄卡片时靠哪边', [
+        { v: 'left', t: '左' }, { v: 'center', t: '中' }, { v: 'right', t: '右' }
+      ], s.cardAlign)}
+      <div class="set-row">
+        <div><b>圆角</b><small>0 是直角，24 最圆</small></div>
+        <input class="range" id="cardRadius" type="range" min="0" max="24" step="1" value="${clamp(Number(s.cardRadius), 0, 24)}">
+      </div>
+      ${segRow('cardText', '文字对齐', '单词、释义和标签', [
+        { v: 'left', t: '左' }, { v: 'center', t: '中' }
+      ], s.cardText)}
+      ${segRow('phonetic', '音标位置', '音标显示在哪', [
+        { v: 'inline', t: '同行' }, { v: 'below', t: '下一行' }
+      ], s.phonetic)}
+      ${switchRow('showSpeak', '发音按钮', '卡片右上角的喇叭', s.showSpeak)}
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>偏好</h2><span>PREFERENCE</span></div>
       ${switchRow('autoSpeak', '自动发音', '进入单词时自动朗读', s.autoSpeak)}
+      ${switchRow('showStats', '词库统计', '今日新词、待复习、连续天数', s.showStats)}
       ${switchRow('texture', '纸张纹理', '纸面的细颗粒质感', s.texture)}
     </section>
 
@@ -1341,6 +1491,15 @@
     return `<div class="set-row">
       <div><b>${title}</b><small>${sub}</small></div>
       <button class="switch ${on ? 'on' : ''}" role="switch" aria-checked="${on ? 'true' : 'false'}" data-act="switch" data-key="${key}"><i></i></button>
+    </div>`;
+  }
+
+  function segRow(key, title, sub, options, current) {
+    return `<div class="set-row">
+      <div><b>${title}</b><small>${sub}</small></div>
+      <div class="seg small">
+        ${options.map((o) => `<button data-act="set" data-key="${key}" data-val="${o.v}" class="${current === o.v ? 'on' : ''}">${o.t}</button>`).join('')}
+      </div>
     </div>`;
   }
 
@@ -1553,10 +1712,10 @@
     return cachedVoice;
   }
 
-  function speak(text, rate) {
-    const t = String(text || '').trim();
-    if (!t) return;
-    if (!('speechSynthesis' in window)) { toast('这个浏览器暂不支持发音'); return; }
+  let audioEl = null;
+
+  function speakWeb(t, rate) {
+    if (!('speechSynthesis' in window)) return false;
     try {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(t);
@@ -1566,7 +1725,52 @@
       const v = getVoice();
       if (v) u.voice = v;
       window.speechSynthesis.speak(u);
-    } catch (e) { /* noop */ }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function speakAudio(t) {
+    if (!/^[a-zA-Z][a-zA-Z' -]*$/.test(t)) return false;
+    try {
+      if (!audioEl) audioEl = new Audio();
+      audioEl.src = 'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(t);
+      const p = audioEl.play();
+      if (p && p.catch) p.catch(() => {});
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function speak(text, rate) {
+    const t = String(text || '').trim();
+    if (!t) return;
+
+    const cap = window.Capacitor;
+    const nativeTts = cap && cap.Plugins && cap.Plugins.TextToSpeech;
+    if (nativeTts) {
+      try {
+        const p = nativeTts.speak({
+          text: t,
+          lang: 'en-US',
+          rate: rate || 0.9,
+          pitch: 1.0,
+          volume: 1.0
+        });
+        if (p && p.catch) {
+          p.catch(() => {
+            if (!speakWeb(t, rate) && !speakAudio(t)) toast('这台设备的语音暂不可用');
+          });
+        }
+        return;
+      } catch (e) { /* fall through */ }
+    }
+
+    if (speakWeb(t, rate)) return;
+    if (speakAudio(t)) return;
+    toast('这台设备的语音暂不可用');
   }
 
   function bindVoices() {
@@ -1596,6 +1800,18 @@
       case 'del': removeWord(el.getAttribute('data-id')); break;
       case 'master': toggleMaster(el.getAttribute('data-id')); break;
       case 'filter': ui.filter = el.getAttribute('data-f'); ui.open = null; render(); break;
+      case 'group': ui.group = el.getAttribute('data-g') === 'tag' ? 'tag' : 'date'; ui.open = null; render(); break;
+      case 'set': {
+        const key = el.getAttribute('data-key');
+        const val = el.getAttribute('data-val');
+        if (key && val) {
+          state.settings[key] = val;
+          save();
+          applyTheme();
+          render();
+        }
+        break;
+      }
       case 'clear-q':
         ui.q = '';
         render();
@@ -1654,6 +1870,22 @@
       if (clear) clear.style.display = ui.q ? '' : 'none';
     } else if (e.target.id === 'bgRange') {
       state.settings.bgOpacity = Number(e.target.value) || 35;
+      applyTheme();
+      save();
+    } else if (e.target.id === 'glassOpacity') {
+      state.settings.glassOpacity = Number(e.target.value) || 100;
+      applyTheme();
+      save();
+    } else if (e.target.id === 'glassBlur') {
+      state.settings.glassBlur = Number(e.target.value) || 0;
+      applyTheme();
+      save();
+    } else if (e.target.id === 'cardWidth') {
+      state.settings.cardWidth = clamp(Number(e.target.value) || 100, 80, 100);
+      applyTheme();
+      save();
+    } else if (e.target.id === 'cardRadius') {
+      state.settings.cardRadius = clamp(Number(e.target.value), 0, 24);
       applyTheme();
       save();
     }
