@@ -10,8 +10,11 @@
     "cap:open": "cap open android"
   },
   "dependencies": {
+    "@capacitor-community/text-to-speech": "^5.0.0",
     "@capacitor/android": "^6.0.0",
-    "@capacitor/core": "^6.0.0"
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/filesystem": "^6.0.0",
+    "@capacitor/share": "^6.0.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.0.0"

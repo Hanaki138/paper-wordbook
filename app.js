@@ -109,7 +109,7 @@
   }
   function blankState() {
     return {
-      version: 3,
+      version: 4,
       words: [],
       settings: Object.assign({}, DEFAULT_SETTINGS),
       days: {},
@@ -193,6 +193,8 @@
     st.createdAt = raw.createdAt || st.createdAt;
     const list = Array.isArray(raw.words) ? raw.words : [];
     st.words = list.filter((w) => w && w.word && w.meaning).map(normalizeWord);
+    if (raw.version !== 4) st.cache = {};
+    st.version = 4;
     return st;
   }
 
@@ -687,12 +689,16 @@
         </div>
         <button class="icon-btn" data-act="speak" data-text="${esc(d.word)}" aria-label="朗读">${ICON.speaker}</button>
       </div>
-      ${d.zh ? `<p class="entry-zh">${esc(d.zh)}</p>` : (d.zhFailed ? '<p class="entry-zh-pending">中文释义暂未获取，可在下方手动补充。</p>' : '<p class="entry-zh-pending">中文释义生成中…</p>')}
+      ${d.fromYoudao
+        ? ''
+        : (d.zh
+          ? `<p class="entry-zh">${esc((d.senses[0] && posLabel(d.senses[0].pos) ? posLabel(d.senses[0].pos) + ' ' : '') + d.zh)}</p>`
+          : (d.zhFailed ? '<p class="entry-zh-pending">中文释义暂未获取，可在下方手动补充。</p>' : '<p class="entry-zh-pending">中文释义生成中…</p>'))}
       <ol class="senses">
         ${d.senses.map((s) => `<li>
-          ${s.pos ? `<span class="pos">${esc(s.pos)}</span>` : ''}
-          <p>${esc(s.def)}</p>
-          ${s.zh ? `<p class="sense-zh">${esc(s.zh)}</p>` : ''}
+          ${s.pos ? `<span class="pos">${esc(posLabel(s.pos))}</span>` : ''}
+          ${s.def ? `<p>${esc(s.def)}</p>` : ''}
+          ${s.zh ? `<p class="${s.def ? 'sense-zh' : 'sense-main'}">${esc(s.zh)}</p>` : ''}
         </li>`).join('')}
       </ol>
       ${d.example ? `<div class="entry-ex"><p class="ex-en">${esc(d.example)}</p>${d.exampleZh ? `<p class="ex-zh">${esc(d.exampleZh)}</p>` : ''}</div>` : '<div class="entry-ex none"><p>这部词典没有收录例句，可以自己补一句。</p><button class="link-btn" data-act="save-lookup">补一句</button></div>'}
@@ -758,6 +764,104 @@
     } catch (e) {
       return null;
     }
+  }
+
+  function posLabel(pos) {
+    const p = String(pos || '').trim().toLowerCase();
+    const map = {
+      noun: 'n.', verb: 'v.', adjective: 'adj.', adverb: 'adv.',
+      pronoun: 'pron.', preposition: 'prep.', conjunction: 'conj.',
+      interjection: 'int.', numeral: 'num.', article: 'art.', determiner: 'det.'
+    };
+    if (map[p]) return map[p];
+    if (/^[a-z]+\.$/.test(p)) return p;
+    if (p === 'n' || p === 'v' || p === 'adj' || p === 'adv') return p + '.';
+    return p ? p + '.' : '';
+  }
+
+  function meaningFromData(d) {
+    if (!d) return '';
+    const first = d.senses && d.senses[0];
+    const zh = d.zh || (first && first.zh) || '';
+    if (!zh) return '';
+    const pos = posLabel(first && first.pos);
+    return pos ? pos + ' ' + zh : zh;
+  }
+
+  function parseYoudao(data, word) {
+    if (!data || !data.ec || !data.ec.word || !data.ec.word[0]) return null;
+    const ec = data.ec.word[0];
+    const phonetic = ec.usphone ? '/' + ec.usphone + '/' : (ec.ukphone ? '/' + ec.ukphone + '/' : '');
+    const senses = [];
+    (ec.trs || []).forEach((t) => {
+      const tr = t.tr && t.tr[0];
+      const lines = tr && tr.l && tr.l.i;
+      const arr = Array.isArray(lines) ? lines : (lines ? [lines] : []);
+      arr.forEach((line) => {
+        const text = String(line).replace(/<[^>]+>/g, '').trim();
+        if (!text) return;
+        if (/人名|姓氏|地名/.test(text)) return;
+        const m = text.match(/^([a-zA-Z]+\.)\s*(.+)$/);
+        if (m && m[1].toLowerCase() === 'comb.') return;
+        if (m) senses.push({ pos: m[1], def: '', zh: m[2] });
+        else senses.push({ pos: '', def: '', zh: text });
+      });
+    });
+    if (!senses.length) return null;
+
+    let example = '';
+    let exampleZh = '';
+    const pairs = data.blng_sents_part && data.blng_sents_part['sentence-pair'];
+    if (Array.isArray(pairs)) {
+      const p = pairs.find((x) => x.sentence && x['sentence-translation']) || pairs[0];
+      if (p) {
+        example = String(p.sentence).replace(/<[^>]+>/g, '');
+        exampleZh = String(p['sentence-translation'] || '').replace(/<[^>]+>/g, '');
+      }
+    }
+    let displayWord = word;
+    if (ec['return-phrase']) {
+      displayWord = typeof ec['return-phrase'] === 'string'
+        ? ec['return-phrase']
+        : (ec['return-phrase'].l && ec['return-phrase'].l.i) || word;
+    }
+
+    return {
+      word: displayWord,
+      phonetic: phonetic,
+      senses: senses.slice(0, 6),
+      zh: '',
+      example: example,
+      exampleZh: exampleZh,
+      source: '有道',
+      fromYoudao: true
+    };
+  }
+
+  async function fetchYoudao(word) {
+    const url = 'https://dict.youdao.com/jsonapi?q=' + encodeURIComponent(word);
+    const cap = window.Capacitor;
+    const http = cap && cap.Plugins && cap.Plugins.CapacitorHttp;
+    let data = null;
+    try {
+      if (http) {
+        const res = await http.get({
+          url: url,
+          responseType: 'json',
+          connectTimeout: 8000,
+          readTimeout: 8000
+        });
+        data = res.data;
+        if (typeof data === 'string') data = JSON.parse(data);
+      } else {
+        const res = await timeoutFetch(url, 8000);
+        if (!res.ok) return null;
+        data = await res.json();
+      }
+    } catch (e) {
+      return null;
+    }
+    return parseYoudao(data, word);
   }
 
   async function fetchDict(word) {
@@ -853,6 +957,15 @@
     const k = word.toLowerCase();
     const hit = state.cache[k];
     if (hit && hit.data && Date.now() - hit.t < 14 * 86400000) return hit.data;
+
+    const yd = await fetchYoudao(word);
+    if (yd) {
+      state.cache[k] = { t: Date.now(), data: yd };
+      trimCache();
+      save();
+      return yd;
+    }
+
     const data = await fetchEntry(word);
     if (data.zh) {
       state.cache[k] = { t: Date.now(), data: data };
@@ -887,7 +1000,7 @@
       if (input) input.value = data.word;
       refreshRecent();
       renderLookupResultOnly();
-      if (!data.zh) {
+      if (!data.zh && !data.fromYoudao) {
         enrichEntry(data).then(() => {
           if (ui.lookup && ui.lookup.data === data) renderLookupResultOnly();
         });
@@ -905,7 +1018,7 @@
     openAdd({
       word: d.word,
       phonetic: d.phonetic,
-      meaning: d.zh || '',
+      meaning: meaningFromData(d),
       example: d.example || '',
       exampleZh: d.exampleZh || '',
       fromLookup: true
@@ -1395,13 +1508,16 @@
 
     const ok = save();
     closeSheet();
+    ui.q = '';
+    ui.filter = 'all';
     if (wasLookup) {
       ui.tab = 'library';
       ui.lookupWord = '';
       animateView();
     }
     render();
-    toast(editing ? '已更新' : (ok ? '已收进词笺' : '已收进词笺（本次有效，未能写入本机存储）'));
+    window.scrollTo(0, 0);
+    toast(editing ? '已更新' : (ok ? '已收进词库' : '已收进词库（本次有效，未能写入本机存储）'));
   }
 
   async function sheetLookup() {
@@ -1414,13 +1530,13 @@
 
     try {
       const d = await getEntry(word);
-      await enrichEntry(d);
+      if (!d.fromYoudao) await enrichEntry(d);
       const fill = (id, val) => {
         const el = $('#' + id);
         if (el && !el.value.trim() && val) el.value = val;
       };
       fill('fPhonetic', d.phonetic);
-      fill('fMeaning', d.zh);
+      fill('fMeaning', meaningFromData(d));
       fill('fExample', d.example);
       fill('fExampleZh', d.exampleZh);
       toast(d.zh ? '已填入，核对后保存' : '只查到英文释义，中文请补充');
@@ -1826,20 +1942,60 @@
     toast('已清空');
   }
 
-  function exportData() {
+  function toBase64(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  async function exportData() {
     const payload = {
       app: 'paper-wordbook',
-      version: 3,
+      version: 4,
       exportedAt: new Date().toISOString(),
       words: state.words,
       settings: state.settings,
       days: state.days
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const json = JSON.stringify(payload, null, 2);
+    const filename = '词笺备份-' + TODAY() + '.json';
+
+    const cap = window.Capacitor;
+    const native = !!(cap && cap.isNativePlatform && cap.isNativePlatform());
+    const fs = cap && cap.Plugins && cap.Plugins.Filesystem;
+    const share = cap && cap.Plugins && cap.Plugins.Share;
+
+    if (native) {
+      if (!fs) {
+        toast('导出失败：文件插件未安装');
+        return;
+      }
+      try {
+        await fs.writeFile({ path: filename, data: toBase64(json), directory: 'CACHE' });
+        const got = await fs.getUri({ path: filename, directory: 'CACHE' });
+        if (share) {
+          await share.share({
+            title: '纸间词笺备份',
+            text: '词笺数据备份',
+            url: got.uri,
+            dialogTitle: '保存或发送备份文件'
+          });
+          toast('已生成备份，选择保存位置');
+        } else {
+          toast('备份已生成：' + got.uri);
+        }
+      } catch (e) {
+        toast('导出失败，请重试');
+      }
+      return;
+    }
+
+    const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = '词笺备份-' + TODAY() + '.json';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();

@@ -424,6 +424,7 @@ body.no-speak .w-top .icon-btn{display:none}
 .senses{counter-reset:s}
 .pos{display:inline-block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
 .sense-zh{margin-top:2px;font-size:12px;color:var(--muted)}
+.sense-main{font-size:14px;line-height:1.6;color:var(--ink-2)}
 .entry-ex{margin-top:12px;padding:11px 12px;background:var(--paper-3);border-radius:12px}
 .entry-ex.none{display:flex;align-items:center;justify-content:space-between;gap:10px;background:transparent;border:1px dashed var(--line);padding:10px 12px}
 .entry-ex.none p{font-size:11px;line-height:1.5;color:var(--muted)}
