@@ -701,10 +701,15 @@
           ${s.zh ? `<p class="${s.def ? 'sense-zh' : 'sense-main'}">${esc(s.zh)}</p>` : ''}
         </li>`).join('')}
       </ol>
+      ${((d.phrases && d.phrases.length) || (d.forms && d.forms.length)) ? `<div class="entry-usage">
+        <b>用法 / 搭配</b>
+        ${(d.phrases || []).slice(0, 8).map((p) => `<p><span class="u-en">${esc(p.en)}</span>${p.zh ? `<span class="u-zh">${esc(p.zh)}</span>` : ''}</p>`).join('')}
+        ${(d.forms && d.forms.length) ? `<p class="u-forms">变形：${d.forms.map((f) => `${esc(f.name)} ${esc(f.value)}`).join('；')}</p>` : ''}
+      </div>` : ''}
       ${d.example ? `<div class="entry-ex"><p class="ex-en">${esc(d.example)}</p>${d.exampleZh ? `<p class="ex-zh">${esc(d.exampleZh)}</p>` : ''}</div>` : '<div class="entry-ex none"><p>这部词典没有收录例句，可以自己补一句。</p><button class="link-btn" data-act="save-lookup">补一句</button></div>'}
       <button class="btn ink wide" data-act="save-lookup">＋ 收进今日词笺</button>
       ${exists ? '<p class="exists-tip">词笺里已经有这个词了</p>' : ''}
-      ${d.source ? `<p class="entry-src">释义 ${esc(d.source)} · 中文 MyMemory</p>` : ''}
+      ${d.source ? `<p class="entry-src">释义 ${esc(d.source)}${d.fromYoudao ? '' : ' · 中文 MyMemory'}</p>` : ''}
     </article>`;
   }
 
@@ -766,6 +771,26 @@
     }
   }
 
+  function collectUsages(root, out, budget) {
+    if (!root || typeof root !== 'object' || out.length >= 8 || budget.n > 4000) return;
+    budget.n++;
+    if (Array.isArray(root)) {
+      for (let i = 0; i < root.length; i++) collectUsages(root[i], out, budget);
+      return;
+    }
+    if (Array.isArray(root.usages)) {
+      root.usages.forEach((u) => {
+        if (u && u.phrase && !out.some((x) => x.en === String(u.phrase))) {
+          out.push({ en: String(u.phrase), zh: String(u.phraseTrans || '') });
+        }
+      });
+    }
+    Object.keys(root).forEach((k) => {
+      if (k === 'usages') return;
+      collectUsages(root[k], out, budget);
+    });
+  }
+
   function posLabel(pos) {
     const p = String(pos || '').trim().toLowerCase();
     const map = {
@@ -809,6 +834,35 @@
     });
     if (!senses.length) return null;
 
+    const phrases = [];
+    const found = [];
+    const budget = { n: 0 };
+    collectUsages(data.collins, found, budget);
+    collectUsages(data.expand_ec, found, budget);
+    found.forEach((u) => {
+      if (!phrases.some((p) => p.en === u.en)) phrases.push(u);
+    });
+    const phrs = data.phrs && data.phrs.phrs;
+    if (Array.isArray(phrs)) {
+      phrs.forEach((item) => {
+        const p = item && item.phr;
+        const en = p && p.headword && p.headword.l && p.headword.l.i;
+        const tr = p && p.trs && p.trs[0] && p.trs[0].tr && p.trs[0].tr.l && p.trs[0].tr.l.i;
+        if (!en) return;
+        if (!phrases.some((x) => x.en === String(en))) {
+          phrases.push({ en: String(en), zh: String(tr || '') });
+        }
+      });
+    }
+
+    const forms = (ec.wfs || []).map((f) => {
+      const w = f.wf || f;
+      return { name: String(w.name || ''), value: String(w.value || '') };
+    }).filter((f) => f.value).slice(0, 4);
+
+    const usageParts = phrases.slice(0, 8).map((p) => p.en + (p.zh ? ' ' + p.zh : ''));
+    if (forms.length) usageParts.push('变形：' + forms.map((f) => f.name + ' ' + f.value).join('；'));
+
     let example = '';
     let exampleZh = '';
     const pairs = data.blng_sents_part && data.blng_sents_part['sentence-pair'];
@@ -833,6 +887,9 @@
       zh: '',
       example: example,
       exampleZh: exampleZh,
+      phrases: phrases.slice(0, 8),
+      forms: forms,
+      usage: usageParts.join('；'),
       source: '有道',
       fromYoudao: true
     };
@@ -1021,6 +1078,7 @@
       meaning: meaningFromData(d),
       example: d.example || '',
       exampleZh: d.exampleZh || '',
+      usage: d.usage || '',
       fromLookup: true
     });
   }
@@ -1535,11 +1593,13 @@
         const el = $('#' + id);
         if (el && !el.value.trim() && val) el.value = val;
       };
+      const meaning = meaningFromData(d);
       fill('fPhonetic', d.phonetic);
-      fill('fMeaning', meaningFromData(d));
+      fill('fMeaning', meaning);
       fill('fExample', d.example);
       fill('fExampleZh', d.exampleZh);
-      toast(d.zh ? '已填入，核对后保存' : '只查到英文释义，中文请补充');
+      fill('fUsage', d.usage || '');
+      toast(meaning ? '已填入，核对后保存' : '只查到英文释义，中文请补充');
     } catch (e) {
       toast((e && e.message) || '查询失败');
     } finally {
