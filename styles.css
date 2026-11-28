@@ -692,6 +692,16 @@ body.no-speak .w-top .icon-btn{display:none}
 .tag-picks{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 12px}
 .tag-picks .chip{font-size:11px;padding:4px 10px}
 .cat-actions{display:flex;gap:6px;flex:none}
+.tag-list{display:flex;flex-wrap:wrap;gap:8px}
+.tag-option{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 14px;border:1px solid var(--line);border-radius:20px;
+  background:var(--paper-2);font-size:13px;color:var(--ink-2);
+  transition:background .2s,color .2s,border-color .2s;
+}
+.tag-option small{font-size:9px;color:var(--muted)}
+.tag-option.on{background:var(--ink);border-color:var(--ink);color:var(--paper-2)}
+.tag-option.on small{color:var(--paper-2);opacity:.7}
 
 .bg-preview{
   height:108px;margin-bottom:10px;border-radius:14px;overflow:hidden;

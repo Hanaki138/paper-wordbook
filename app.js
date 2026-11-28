@@ -567,6 +567,7 @@
     more += `<div class="w-detail-meta"><span>复习 ${s.reps} 次</span><span>${esc(dueLabel(w))}</span></div>`;
     more += `<div class="w-actions">
       <button class="btn mini" data-act="edit" data-id="${w.id}">编辑</button>
+      <button class="btn mini" data-act="tag-word" data-id="${w.id}">分类</button>
       <button class="btn mini" data-act="master" data-id="${w.id}">${stageOf(w) >= 5 ? '取消掌握' : '标记掌握'}</button>
       <button class="btn mini danger" data-act="del" data-id="${w.id}">删除</button>
     </div>`;
@@ -1560,6 +1561,45 @@
     if (root) root.innerHTML = '';
   }
 
+  function openTagSheet(id) {
+    const w = getWord(id);
+    if (!w) return;
+    const tags = allTags();
+    const root = $('#sheetRoot');
+    if (!root) return;
+    draft = null;
+    root.innerHTML = `<div class="sheet-mask" data-act="close-sheet"></div>
+      <section class="sheet tag-sheet" role="dialog" aria-modal="true">
+        <div class="sheet-grab"></div>
+        <header class="sheet-head">
+          <h2>给「${esc(w.word)}」分类</h2>
+          <button class="icon-btn" data-act="close-sheet" aria-label="关闭">${ICON.close}</button>
+        </header>
+        <div class="sheet-scroll">
+          <div class="tag-list">
+            <button class="tag-option ${!w.tag ? 'on' : ''}" data-act="set-cat" data-id="${w.id}" data-tag="">未分类</button>
+            ${tags.map((t) => `<button class="tag-option ${w.tag === t.tag ? 'on' : ''}" data-act="set-cat" data-id="${w.id}" data-tag="${esc(t.tag)}">${esc(t.tag)}<small>${t.count}</small></button>`).join('')}
+          </div>
+          <div class="field" style="margin-top:16px">
+            <label>新建分类</label>
+            <div class="word-input">
+              <input id="newTagInput" maxlength="20" placeholder="例如：四级 / Unit 1">
+              <button type="button" class="btn" data-act="add-cat" data-id="${w.id}">新建并分类</button>
+            </div>
+          </div>
+          <p class="fine">分类只是给单词打个标签，删分类不会删单词。</p>
+        </div>
+        <div class="sheet-actions">
+          <button type="button" class="btn ghost" data-act="close-sheet">完成</button>
+        </div>
+      </section>`;
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => {
+      const input = $('#newTagInput');
+      if (input) input.focus();
+    }, 120);
+  }
+
   function renderSheet() {
     const root = $('#sheetRoot');
     if (!root || !draft) return;
@@ -1763,6 +1803,7 @@
           <button class="btn mini danger" data-act="delete-tag" data-tag="${esc(c.tag)}">删除</button>
         </div>
       </div>`).join('') : '<p class="fine">还没有分类。记录或编辑单词时，在「分类」里填一个名字，就会出现在这里。</p>'}
+      <p class="fine">给单词分类：词库 → 点开单词 → 分类；也可以在这里改名或删除。</p>
     </section>
 
     <section class="card">
@@ -2374,6 +2415,36 @@
       case 'pick-tag': {
         const input = $('#fTag');
         if (input) input.value = el.getAttribute('data-tag') || '';
+        break;
+      }
+      case 'tag-word':
+        openTagSheet(el.getAttribute('data-id'));
+        break;
+      case 'set-cat': {
+        const w = getWord(el.getAttribute('data-id'));
+        if (!w) break;
+        w.tag = el.getAttribute('data-tag') || '';
+        save();
+        closeSheet();
+        render();
+        toast(w.tag ? '已归到「' + w.tag + '」' : '已设为未分类');
+        break;
+      }
+      case 'add-cat': {
+        const w = getWord(el.getAttribute('data-id'));
+        if (!w) break;
+        const input = $('#newTagInput');
+        const name = input ? input.value.trim().slice(0, 20) : '';
+        if (!name) {
+          toast('先写一个分类名');
+          if (input) input.focus();
+          break;
+        }
+        w.tag = name;
+        save();
+        closeSheet();
+        render();
+        toast('已归到「' + name + '」');
         break;
       }
       case 'rename-tag': {
