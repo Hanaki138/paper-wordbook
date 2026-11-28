@@ -438,6 +438,7 @@ body.no-speak .w-top .icon-btn{display:none}
 .entry-ex .ex-en{font-size:13px}
 .entry .btn.wide{margin-top:15px}
 .entry-src{margin-top:9px;font-size:9.5px;letter-spacing:.04em;color:var(--muted);text-align:center}
+.entry-loading{margin-top:10px;font-size:10.5px;letter-spacing:.04em;color:var(--muted);text-align:center;animation:pulse 1.2s infinite}
 .exists-tip{margin-top:9px;font-size:10.5px;color:var(--muted);text-align:center}
 
 .lookup-idle,.entry.error-card{border-style:solid}
@@ -687,6 +688,10 @@ body.no-speak .w-top .icon-btn{display:none}
   border-radius:9px;background:var(--paper-2);font-size:14px;text-align:right;outline:none;
 }
 .text-input:focus{border-color:var(--accent)}
+.text-input.wide{width:100%;height:40px;text-align:left}
+.tag-picks{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 12px}
+.tag-picks .chip{font-size:11px;padding:4px 10px}
+.cat-actions{display:flex;gap:6px;flex:none}
 
 .bg-preview{
   height:108px;margin-bottom:10px;border-radius:14px;overflow:hidden;
@@ -838,6 +843,7 @@ body.no-speak .w-top .icon-btn{display:none}
 /* ---------------- motion ---------------- */
 .view.page-in{animation:pageIn .36s cubic-bezier(.22,.75,.25,1) both}
 @keyframes pageIn{from{opacity:0;transform:translateY(10px) scale(.997)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @keyframes cardIn{from{opacity:0;transform:translateY(10px) rotateX(4deg)}to{opacity:1;transform:none}}
 @keyframes sheetUp{from{transform:translate(-50%,100%)}to{transform:translate(-50%,0)}}

@@ -407,6 +407,15 @@
   </div>`;
   }
 
+  function allTags() {
+    const map = {};
+    state.words.forEach((w) => {
+      const t = String(w.tag || '').trim();
+      if (t) map[t] = (map[t] || 0) + 1;
+    });
+    return Object.keys(map).sort((a, b) => a.localeCompare(b)).map((t) => ({ tag: t, count: map[t] }));
+  }
+
   function viewLibrary() {
     const words = state.words;
     const todayCount = words.filter((w) => w.date === TODAY()).length;
@@ -706,10 +715,11 @@
         ${(d.phrases || []).slice(0, 8).map((p) => `<p><span class="u-en">${esc(p.en)}</span>${p.zh ? `<span class="u-zh">${esc(p.zh)}</span>` : ''}</p>`).join('')}
         ${(d.forms && d.forms.length) ? `<p class="u-forms">变形：${d.forms.map((f) => `${esc(f.name)} ${esc(f.value)}`).join('；')}</p>` : ''}
       </div>` : ''}
-      ${d.example ? `<div class="entry-ex"><p class="ex-en">${esc(d.example)}</p>${d.exampleZh ? `<p class="ex-zh">${esc(d.exampleZh)}</p>` : ''}</div>` : '<div class="entry-ex none"><p>这部词典没有收录例句，可以自己补一句。</p><button class="link-btn" data-act="save-lookup">补一句</button></div>'}
+      ${d.partial ? '<p class="entry-loading">正在补充音标、例句和用法…</p>' : ''}
+      ${d.example ? `<div class="entry-ex"><p class="ex-en">${esc(d.example)}</p>${d.exampleZh ? `<p class="ex-zh">${esc(d.exampleZh)}</p>` : ''}</div>` : (d.partial ? '' : '<div class="entry-ex none"><p>这部词典没有收录例句，可以自己补一句。</p><button class="link-btn" data-act="save-lookup">补一句</button></div>')}
       <button class="btn ink wide" data-act="save-lookup">＋ 收进今日词笺</button>
       ${exists ? '<p class="exists-tip">词笺里已经有这个词了</p>' : ''}
-      ${d.source ? `<p class="entry-src">释义 ${esc(d.source)}${d.fromYoudao ? '' : ' · 中文 MyMemory'}</p>` : ''}
+      ${d.source ? `<p class="entry-src">释义 ${esc(d.source)}${d.fromYoudao ? (d.partial ? ' · 补充中' : '') : ' · 中文 MyMemory'}</p>` : ''}
     </article>`;
   }
 
@@ -895,30 +905,88 @@
     };
   }
 
-  async function fetchYoudao(word) {
-    const url = 'https://dict.youdao.com/jsonapi?q=' + encodeURIComponent(word);
+  async function nativeGetJson(url, ms) {
     const cap = window.Capacitor;
     const http = cap && cap.Plugins && cap.Plugins.CapacitorHttp;
-    let data = null;
+    if (http) {
+      const res = await http.get({
+        url: url,
+        responseType: 'json',
+        connectTimeout: ms,
+        readTimeout: ms
+      });
+      let data = res.data;
+      if (typeof data === 'string') data = JSON.parse(data);
+      return data;
+    }
+    const res = await timeoutFetch(url, ms);
+    if (!res.ok) return null;
+    return res.json();
+  }
+
+  async function fetchYoudaoSuggest(word) {
+    const url = 'https://dict.youdao.com/suggest?num=1&doctype=json&q=' + encodeURIComponent(word);
+    let data;
     try {
-      if (http) {
-        const res = await http.get({
-          url: url,
-          responseType: 'json',
-          connectTimeout: 8000,
-          readTimeout: 8000
-        });
-        data = res.data;
-        if (typeof data === 'string') data = JSON.parse(data);
-      } else {
-        const res = await timeoutFetch(url, 8000);
-        if (!res.ok) return null;
-        data = await res.json();
-      }
+      data = await nativeGetJson(url, 4000);
     } catch (e) {
       return null;
     }
-    return parseYoudao(data, word);
+    const entries = data && data.data && data.data.entries;
+    if (!Array.isArray(entries) || !entries.length) return null;
+    const entry = entries.find((e) => String(e.entry || '').toLowerCase() === word.toLowerCase()) || entries[0];
+    const explain = String((entry && entry.explain) || '').trim();
+    if (!explain) return null;
+    const m = explain.match(/^([a-zA-Z]+\.)\s*(.+)$/);
+    return {
+      word: (entry && entry.entry) || word,
+      phonetic: '',
+      senses: [{ pos: m ? m[1] : '', def: '', zh: m ? m[2] : explain }],
+      zh: '',
+      example: '',
+      exampleZh: '',
+      phrases: [],
+      forms: [],
+      usage: '',
+      source: '有道',
+      fromYoudao: true,
+      partial: true
+    };
+  }
+
+  async function enrichYoudao(data) {
+    if (!data || data.fullLoaded || data.enriching) return data;
+    data.enriching = true;
+    try {
+      const full = await fetchYoudao(data.word);
+      if (!full) {
+        data.partial = false;
+        data.detailFailed = true;
+        if (ui.lookup && ui.lookup.data === data) renderLookupResultOnly();
+        return data;
+      }
+      Object.keys(full).forEach((k) => { data[k] = full[k]; });
+      data.partial = false;
+      data.fullLoaded = true;
+      state.cache[data.word.toLowerCase()] = { t: Date.now(), data: data };
+      trimCache();
+      save();
+      if (ui.lookup && ui.lookup.data === data) renderLookupResultOnly();
+    } finally {
+      data.enriching = false;
+    }
+    return data;
+  }
+
+  async function fetchYoudao(word) {
+    const url = 'https://dict.youdao.com/jsonapi?q=' + encodeURIComponent(word);
+    let data = null;
+    try {
+      data = await nativeGetJson(url, 8000);
+    } catch (e) {
+      return null;
+    }
+    return data ? parseYoudao(data, word) : null;
   }
 
   async function fetchDict(word) {
@@ -1008,12 +1076,26 @@
     return data;
   }
 
-  async function getEntry(raw) {
+  async function getEntry(raw, opts) {
     const word = String(raw || '').trim().replace(/\s+/g, ' ');
     if (!word) throw new Error('先输入一个单词');
     const k = word.toLowerCase();
     const hit = state.cache[k];
-    if (hit && hit.data && Date.now() - hit.t < 14 * 86400000) return hit.data;
+    if (hit && hit.data && Date.now() - hit.t < 14 * 86400000) {
+      if (hit.data.partial) enrichYoudao(hit.data);
+      if (opts && opts.full && hit.data.partial) await enrichYoudao(hit.data);
+      return hit.data;
+    }
+
+    const fast = await fetchYoudaoSuggest(word);
+    if (fast) {
+      state.cache[k] = { t: Date.now(), data: fast };
+      trimCache();
+      save();
+      const full = enrichYoudao(fast);
+      if (opts && opts.full) await full;
+      return fast;
+    }
 
     const yd = await fetchYoudao(word);
     if (yd) {
@@ -1502,6 +1584,7 @@
               <div class="field"><label>音标</label><input id="fPhonetic" value="${esc(d.phonetic)}" placeholder="/kənˈtrɪbjuːt/"></div>
               <div class="field"><label>分类</label><input id="fTag" value="${esc(d.tag)}" placeholder="四级 / Unit 1"></div>
             </div>
+            ${allTags().length ? `<div class="tag-picks">${allTags().map((x) => `<button type="button" class="chip ${d.tag === x.tag ? 'on' : ''}" data-act="pick-tag" data-tag="${esc(x.tag)}">${esc(x.tag)}</button>`).join('')}</div>` : ''}
             <div class="field"><label>中文释义 <i>*</i></label><textarea id="fMeaning" rows="2" placeholder="贡献；促成">${esc(d.meaning)}</textarea></div>
             <div class="field"><label>英文例句</label><textarea id="fExample" rows="2" placeholder="This may contribute to success.">${esc(d.example)}</textarea></div>
             <div class="field"><label>例句翻译</label><textarea id="fExampleZh" rows="2" placeholder="这可能有助于成功。">${esc(d.exampleZh)}</textarea></div>
@@ -1587,7 +1670,7 @@
     if (btn) { btn.disabled = true; btn.textContent = '查询中'; }
 
     try {
-      const d = await getEntry(word);
+      const d = await getEntry(word, { full: true });
       if (!d.fromYoudao) await enrichEntry(d);
       const fill = (id, val) => {
         const el = $('#' + id);
@@ -1669,6 +1752,17 @@
         <div><b>水印</b><small>首页右下角的签名</small></div>
         <input class="text-input" id="watermarkInput" value="${esc(s.watermark || '')}" maxlength="24" placeholder="Hanaki">
       </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>分类</h2><span>CATEGORY</span></div>
+      ${allTags().length ? allTags().map((c) => `<div class="set-row">
+        <div><b>${esc(c.tag)}</b><small>${c.count} 个词</small></div>
+        <div class="cat-actions">
+          <button class="btn mini" data-act="rename-tag" data-tag="${esc(c.tag)}">改名</button>
+          <button class="btn mini danger" data-act="delete-tag" data-tag="${esc(c.tag)}">删除</button>
+        </div>
+      </div>`).join('') : '<p class="fine">还没有分类。记录或编辑单词时，在「分类」里填一个名字，就会出现在这里。</p>'}
     </section>
 
     <section class="card">
@@ -1985,6 +2079,48 @@
     });
   }
 
+  function askText(opts) {
+    return new Promise((resolve) => {
+      const root = $('#modalRoot');
+      if (!root) { resolve(null); return; }
+      root.innerHTML = `<div class="modal-mask">
+        <div class="modal">
+          <h3>${esc(opts.title || '')}</h3>
+          <input class="text-input wide" id="askTextInput" maxlength="20" value="${esc(opts.value || '')}" placeholder="${esc(opts.placeholder || '')}">
+          <div class="modal-actions">
+            <button class="btn ghost" data-m="0">取消</button>
+            <button class="btn ink" data-m="1">确定</button>
+          </div>
+        </div>
+      </div>`;
+      const input = $('#askTextInput');
+      function done(v) {
+        root.innerHTML = '';
+        document.removeEventListener('keydown', onKey);
+        resolve(v);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') done(null);
+        if (e.key === 'Enter' && input) done(input.value.trim() || null);
+      }
+      document.addEventListener('keydown', onKey);
+      const mask = root.querySelector('.modal-mask');
+      if (mask) {
+        mask.addEventListener('click', (e) => {
+          if (e.target === mask) done(null);
+        });
+      }
+      $$('[data-m]', root).forEach((b) => {
+        b.addEventListener('click', () => {
+          done(b.getAttribute('data-m') === '1' ? ((input && input.value.trim()) || null) : null);
+        });
+      });
+      setTimeout(() => {
+        if (input) { input.focus(); input.select(); }
+      }, 50);
+    });
+  }
+
   async function resetAll() {
     const ok = await ask({
       title: '清空所有数据？',
@@ -2233,6 +2369,38 @@
         save();
         applyTheme();
         render();
+        break;
+      }
+      case 'pick-tag': {
+        const input = $('#fTag');
+        if (input) input.value = el.getAttribute('data-tag') || '';
+        break;
+      }
+      case 'rename-tag': {
+        const oldTag = el.getAttribute('data-tag') || '';
+        askText({ title: '分类改名', value: oldTag }).then((name) => {
+          if (!name || name === oldTag) return;
+          state.words.forEach((w) => { if (w.tag === oldTag) w.tag = name; });
+          save();
+          render();
+          toast('分类已改名');
+        });
+        break;
+      }
+      case 'delete-tag': {
+        const tag = el.getAttribute('data-tag') || '';
+        ask({
+          title: '删除分类「' + tag + '」？',
+          body: '分类里的单词不会删，只会变成未分类。',
+          ok: '删除',
+          danger: true
+        }).then((ok) => {
+          if (!ok) return;
+          state.words.forEach((w) => { if (w.tag === tag) w.tag = ''; });
+          save();
+          render();
+          toast('分类已删除');
+        });
         break;
       }
       case 'clear-q':
